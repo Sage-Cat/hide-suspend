@@ -1,0 +1,9 @@
+{
+  "uuid": "hide-suspend@sagecat.local",
+  "name": "Hide Suspend",
+  "description": "Removes Suspend from GNOME Shell's power menu.",
+  "shell-version": [
+    "46"
+  ],
+  "version": 2
+}

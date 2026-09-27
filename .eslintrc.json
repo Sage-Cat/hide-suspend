@@ -1,0 +1,17 @@
+{
+  "env": {
+    "es6": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "globals": {
+    "global": "readonly"
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": ["error", {"argsIgnorePattern": "^_"}],
+    "semi": ["error", "always"]
+  }
+}

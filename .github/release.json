@@ -1,0 +1,14 @@
+{
+  "name": "hide-suspend",
+  "extensions": [
+    {
+      "directory": ".",
+      "files": [
+        "metadata.json",
+        "extension.js",
+        "suspendAction.js",
+        "buildInfo.js"
+      ]
+    }
+  ]
+}

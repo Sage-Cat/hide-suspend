@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject private publication inputs
+        run: |
+          python3 .github/scripts/privacy.py
+          python3 .github/scripts/test_privacy.py -v
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.5
+      - name: Install distribution-pinned lint tools
+        run: sudo apt-get update && sudo apt-get install --yes jq eslint
+      - name: Validate source
+        run: |
+          make check
+      - name: Check release safety
+        run: python3 .github/scripts/test_release.py -v
+
+  publish:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.repository }}-${{ github.sha }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject private publication inputs
+        run: |
+          python3 .github/scripts/privacy.py
+          python3 .github/scripts/test_privacy.py -v
+      - name: Build reproducible committed artifacts
+        run: python3 .github/scripts/release.py prepare
+      - name: Publish or verify commit release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release.py publish
