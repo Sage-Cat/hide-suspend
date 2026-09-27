@@ -31,3 +31,7 @@ The [CI workflow](.github/workflows/ci.yml) verifies each change. Successful pus
 to the default branch publish a commit-addressed `build-<full-commit-SHA>` release
 with a source archive, applicable extension bundles, and SHA-256 checksums.
 See the [release process](https://github.com/Sage-Cat/workspace-state/blob/main/docs/publication.md) for artifact and verification details.
+
+The local pre-commit privacy gate blocks private files before they enter a commit.
+Enable it in a fresh clone with `git config core.hooksPath .githooks`.
+CI repeats the privacy check before building or publishing.

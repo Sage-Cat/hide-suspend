@@ -50,4 +50,23 @@ jobs:
       - name: Publish or verify commit release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/release.py publish
+        run: python3 .github/scripts/release.py publish --skip-promotion
+
+  promote-latest:
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    concurrency:
+      group: release-latest-${{ github.repository }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject private publication inputs
+        run: python3 .github/scripts/privacy.py
+      - name: Promote the current published default-branch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release.py promote

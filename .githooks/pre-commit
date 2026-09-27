@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root"
+exec python3 -I .github/scripts/privacy.py --index

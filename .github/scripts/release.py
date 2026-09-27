@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from urllib.parse import quote
 import zipfile
 
 
@@ -110,7 +111,43 @@ def verify_assets(repo, release, files):
     return sorted(set(files) - set(existing))
 
 
-def publish(repo, sha, output, tag=None):
+def promote_current_commit(repo, sha, release):
+    """Only the current default-branch commit may advance the Latest pointer."""
+    latest = api(f'repos/{repo}/releases/latest', missing=True)
+    if latest and latest['id'] == release['id']:
+        return release
+    branch = api(f'repos/{repo}')['default_branch']
+    head = api(f'repos/{repo}/git/ref/heads/{quote(branch, safe="")}')['object']
+    # Query immediately before promotion, after every potentially slow upload.
+    if head['type'] == 'commit' and head['sha'] == sha:
+        return api(f'repos/{repo}/releases/{release["id"]}', 'PATCH', {'make_latest': 'true'})
+    return release
+
+
+def promote_latest(repo):
+    """Promote the current published branch head, regardless of triggering run."""
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
+        raise ValueError('invalid GitHub repository')
+    branch = api(f'repos/{repo}')['default_branch']
+    head = api(f'repos/{repo}/git/ref/heads/{quote(branch, safe="")}')['object']
+    if head['type'] != 'commit':
+        raise ValueError('default branch does not reference a commit')
+    sha = checked_sha(head['sha'])
+    tag = f'build-{sha}'
+    release = api(f'repos/{repo}/releases/tags/{tag}', missing=True)
+    result = {'commit': sha, 'tag': tag, 'status': 'awaiting_published_release'}
+    if release and not release['draft']:
+        if tag_commit(repo, tag) != sha or release['tag_name'] != tag:
+            raise ValueError('current branch release tag targets another commit')
+        release = promote_current_commit(repo, sha, release)
+        latest = api(f'repos/{repo}/releases/latest', missing=True)
+        result.update(status='latest' if latest and latest['id'] == release['id'] else 'head_changed',
+                      url=release['html_url'])
+    print(json.dumps(result))
+    return result
+
+
+def publish(repo, sha, output, tag=None, *, update_latest=True):
     checked_sha(sha)
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
         raise ValueError('invalid GitHub repository')
@@ -145,6 +182,8 @@ def publish(repo, sha, output, tag=None):
         raise ValueError('release changed during preparation')
     if release['draft']:
         release = api(f'repos/{repo}/releases/{release["id"]}', 'PATCH', {'draft': False, 'make_latest': 'false' if tag.startswith('build-') else 'true'})
+    if update_latest and tag.startswith('build-'):
+        release = promote_current_commit(repo, sha, release)
     result = {'tag': tag, 'commit': sha, 'url': release['html_url'],
               'append_only_verified': True, 'github_immutable': bool(release.get('immutable', False))}
     print(json.dumps(result))
@@ -153,16 +192,19 @@ def publish(repo, sha, output, tag=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'publish'])
+    parser.add_argument('action', choices=['prepare', 'publish', 'promote'])
     parser.add_argument('--sha', default=os.environ.get('GITHUB_SHA'))
     parser.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY'))
     parser.add_argument('--output', default='release-dist')
     parser.add_argument('--tag')
+    parser.add_argument('--skip-promotion', action='store_true', help='publish assets; leave Latest for the serialized promotion job')
     args = parser.parse_args()
     if args.action == 'prepare':
         prepare(args.sha, args.output)
+    elif args.action == 'promote':
+        promote_latest(args.repo)
     else:
-        publish(args.repo, args.sha, args.output, args.tag)
+        publish(args.repo, args.sha, args.output, args.tag, update_latest=not args.skip_promotion)
 
 
 if __name__ == '__main__':

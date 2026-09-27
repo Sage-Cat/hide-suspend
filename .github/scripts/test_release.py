@@ -30,10 +30,20 @@ class PublicationTests(unittest.TestCase):
         self.target = None
         self.release = None
         self.writes = []
+        self.canonical_sha = SHA
+        self.default_branch = 'main'
+        self.latest = None
 
     def api(self, endpoint, method='GET', payload=None, missing=False):
         if method != 'GET':
             self.writes.append((endpoint, method, payload))
+        if endpoint == 'repos/example/tool':
+            return {'default_branch': self.default_branch}
+        if '/git/ref/heads/' in endpoint:
+            self.assertTrue(endpoint.endswith('/' + self.default_branch))
+            return {'object': {'type': 'commit', 'sha': self.canonical_sha}}
+        if endpoint.endswith('/releases/latest'):
+            return copy.deepcopy(self.latest)
         if '/git/ref/tags/' in endpoint:
             return {'object': {'type': 'commit', 'sha': self.target}} if self.target else None
         if endpoint.endswith('/git/refs'):
@@ -43,6 +53,8 @@ class PublicationTests(unittest.TestCase):
             self.release = dict(payload, id=7, assets=[], html_url='https://example.invalid/release', immutable=False)
         if method == 'PATCH':
             self.release.update(payload)
+            if payload.get('make_latest') == 'true':
+                self.latest = copy.deepcopy(self.release)
         return copy.deepcopy(self.release)
 
     def command(self, *args, **kwargs):
@@ -65,6 +77,77 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.target, SHA)
         self.writes.clear()
         self.assertEqual(self.publish(), result)
+        self.assertEqual(self.writes, [])
+
+    def test_current_default_branch_commit_becomes_latest(self):
+        self.default_branch = 'master'
+        self.publish()
+        self.assertEqual(self.latest['tag_name'], f'build-{SHA}')
+
+    def test_out_of_order_old_commit_does_not_replace_newer_latest(self):
+        self.canonical_sha = 'b' * 40
+        self.latest = {'id': 99, 'tag_name': 'build-' + self.canonical_sha}
+        self.publish()
+        self.assertEqual(self.latest['id'], 99)
+        self.assertFalse(any(len(write) == 3 and write[2].get('make_latest') == 'true' for write in self.writes))
+        self.writes.clear()
+        self.publish()
+        self.assertEqual(self.writes, [])
+
+    def test_head_is_rechecked_after_slow_artifact_uploads(self):
+        normal_command = self.command
+        def advance_head(*args, **kwargs):
+            result = normal_command(*args, **kwargs)
+            self.canonical_sha = 'b' * 40
+            return result
+        with patch.object(publisher, 'api', side_effect=self.api), patch.object(publisher, 'command', side_effect=advance_head), contextlib.redirect_stdout(io.StringIO()):
+            publisher.publish('example/tool', SHA, self.root)
+        self.assertIsNone(self.latest)
+
+    def test_existing_current_commit_release_can_promote_without_replacing_assets(self):
+        self.canonical_sha = 'b' * 40
+        self.publish()
+        self.canonical_sha = SHA
+        self.writes.clear()
+        self.publish()
+        self.assertEqual(self.latest['tag_name'], f'build-{SHA}')
+        self.assertEqual(self.writes, [('repos/example/tool/releases/7', 'PATCH', {'make_latest': 'true'})])
+
+    def test_parallel_publication_can_defer_latest_to_serialized_job(self):
+        self.publish(update_latest=False)
+        self.assertIsNone(self.latest)
+        self.assertFalse(self.release['draft'])
+        self.writes.clear()
+        with patch.object(publisher, 'api', side_effect=self.api), contextlib.redirect_stdout(io.StringIO()):
+            result = publisher.promote_latest('example/tool')
+        self.assertEqual(result['status'], 'latest')
+        self.assertEqual(self.latest['tag_name'], f'build-{SHA}')
+        self.assertEqual(self.writes, [('repos/example/tool/releases/7', 'PATCH', {'make_latest': 'true'})])
+
+    def test_old_trigger_promotes_new_published_head_after_pending_jobs_coalesce(self):
+        self.canonical_sha = 'b' * 40
+        self.target = self.canonical_sha
+        self.release = {'id': 99, 'tag_name': 'build-' + self.canonical_sha,
+                        'draft': False, 'html_url': 'https://example.invalid/new-release', 'assets': []}
+        with patch.object(publisher, 'api', side_effect=self.api), patch.dict('os.environ', {'GITHUB_SHA': SHA}), contextlib.redirect_stdout(io.StringIO()):
+            result = publisher.promote_latest('example/tool')
+        self.assertEqual(result['commit'], self.canonical_sha)
+        self.assertEqual(self.latest['id'], 99)
+
+    def test_promotion_waits_for_head_release_instead_of_promoting_old_release(self):
+        self.latest = {'id': 1, 'tag_name': 'v1'}
+        with patch.object(publisher, 'api', side_effect=self.api), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(publisher.promote_latest('example/tool')['status'], 'awaiting_published_release')
+        self.assertEqual(self.latest['id'], 1)
+        self.assertEqual(self.writes, [])
+
+    def test_promotion_refuses_changed_release_tag(self):
+        self.publish(update_latest=False)
+        self.target = 'c' * 40
+        self.writes.clear()
+        with patch.object(publisher, 'api', side_effect=self.api):
+            with self.assertRaisesRegex(ValueError, 'another commit'):
+                publisher.promote_latest('example/tool')
         self.assertEqual(self.writes, [])
 
     def test_wrong_tag_fails_before_any_write(self):
