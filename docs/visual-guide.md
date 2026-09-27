@@ -4,7 +4,7 @@
 
 ![Power submenu with Suspend hidden](screenshots/power-menu.png)
 
-This is the native GNOME Shell 46.2 power submenu, captured with the current
+This is the native GNOME Shell 46.0 power submenu, captured with the current
 extension in a disposable headless Wayland compositor. The fixture makes Suspend,
 Restart, Power Off, and Log Out capabilities available using synthetic values.
 The extension hides Suspend; the remaining native menu actions stay visible.
