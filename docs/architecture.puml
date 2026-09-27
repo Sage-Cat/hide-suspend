@@ -1,0 +1,32 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam shadowing false
+title Hide Suspend — GNOME Shell 46
+actor "User" as user
+package "GNOME Shell process" {
+  component "Quick Settings\nPower submenu" as menu
+  component "extension.js\nGNOME 46 adapter" as adapter
+  component "findSuspendAction\nVerify owner + translated label" as identity
+  component "SuspendVisibilityPolicy\nsuspendAction.js" as policy
+  component "SystemActions\ncanSuspend capability" as actions
+  component "GetState\nLoaded policy and build" as diagnostics
+}
+actor "Diagnostic client" as client
+user --> menu : Open power submenu
+adapter --> identity : After Shell startup completes\nFind unique native Suspend item
+identity --> menu : Inspect owner and items
+adapter --> policy : Enable / disable
+policy --> menu : Hide selected item\nRe-hide on visibility notification
+menu --> policy : notify::visible
+policy --> actions : Read capability on disable
+policy --> menu : Restore capability-based visibility
+client --> diagnostics : Read-only session D-Bus
+ diagnostics --> adapter : Read state
+note bottom of policy
+  Scope is menu visibility only.
+  No system suspend or lid-switch policy changes.
+  Disable disconnects the visibility handler.
+end note
+@enduml

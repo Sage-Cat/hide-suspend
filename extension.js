@@ -10,6 +10,18 @@ const XML = '<node><interface name="org.sagecat.HideSuspend"><method name="GetSt
 
 export default class HideSuspendExtension extends Extension {
     enable() {
+        if (Main.layoutManager._startingUp) {
+            this._startupId = Main.layoutManager.connect('startup-complete', () => {
+                Main.layoutManager.disconnect(this._startupId);
+                this._startupId = 0;
+                this._enablePolicy();
+            });
+            return;
+        }
+        this._enablePolicy();
+    }
+
+    _enablePolicy() {
         try {
             const menu = Main.panel.statusArea.quickSettings?._system?._systemItem?.menu;
             const label = Gettext.domain('gnome-shell').gettext('Suspend');
@@ -30,6 +42,10 @@ export default class HideSuspendExtension extends Extension {
     }
 
     disable() {
+        if (this._startupId) {
+            Main.layoutManager.disconnect(this._startupId);
+            this._startupId = 0;
+        }
         try {
             this._dbus?.unexport();
         } finally {
