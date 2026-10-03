@@ -32,6 +32,14 @@ a stable example; it does not change system power policy.
 
 ## Loaded-extension diagnostics
 
+Read the enabled extension's policy and build identity without changing the menu:
+
+```sh
+gdbus call --session --dest org.gnome.Shell \
+  --object-path /org/sagecat/HideSuspend \
+  --method org.sagecat.HideSuspend.GetState
+```
+
 ![Read-only diagnostics](screenshots/diagnostics.png)
 
 Read-only diagnostics from GNOME Shell 46. These values came from the current
